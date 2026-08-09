@@ -11,7 +11,7 @@
 // advances once per real invoice generated, so a second call the same day
 // finds nothing due.
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 
 const RESEND_API_URL = "https://api.resend.com/emails";
 
