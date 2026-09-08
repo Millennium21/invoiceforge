@@ -13,22 +13,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { searchParams } = new URL(request.url);
   const token = searchParams.get("token");
 
-  // Two legitimate ways to reach this route: the signed-in owner viewing
-  // their own dashboard, or a client following their public invoice link
-  // (?token=...). Both end up fetching through the admin client so the
-  // query shape is identical either way — only the WHERE clause differs,
-  // and it's always scoped to something the caller has actually proven
-  // they're allowed to see.
-  const admin = createAdminClient();
-  let invoiceQuery = admin.from("invoices").select("*, client:clients(*), profile:profiles!invoices_user_id_fkey(*)");
+  // Public links have no authenticated session, so they use the narrowly
+  // token-scoped admin path. Dashboard downloads use the session client and
+  // RLS, avoiding an unnecessary service-role dependency.
+  const db = token ? createAdminClient() : await createClient();
+  let invoiceQuery = db
+    .from("invoices")
+    .select("*");
 
   if (token) {
     invoiceQuery = invoiceQuery.eq("id", id).eq("public_token", token);
   } else {
-    const supabase = await createClient();
     const {
       data: { user },
-    } = await supabase.auth.getUser();
+    } = await db.auth.getUser();
     if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
     invoiceQuery = invoiceQuery.eq("id", id).eq("user_id", user.id);
   }
@@ -36,16 +34,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { data: invoice, error } = await invoiceQuery.single();
   if (error || !invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
 
-  const { data: items } = await admin
-    .from("invoice_items")
-    .select("*")
-    .eq("invoice_id", id)
-    .order("sort_order");
+  const [{ data: client }, { data: profile }, { data: items }] = await Promise.all([
+    db.from("clients").select("*").eq("id", invoice.client_id).single(),
+    db.from("profiles").select("*").eq("id", invoice.user_id).single(),
+    db.from("invoice_items").select("*").eq("invoice_id", id).order("sort_order"),
+  ]);
+
+  if (!client || !profile) {
+    return NextResponse.json({ error: "Invoice details not found." }, { status: 404 });
+  }
 
   const pdfBuffer = await renderToBuffer(
     <InvoiceDocument
-      profile={invoice.profile}
-      client={invoice.client}
+      profile={profile}
+      client={client}
       items={items ?? []}
       invoiceNumber={invoice.invoice_number}
       issueDate={invoice.issue_date}

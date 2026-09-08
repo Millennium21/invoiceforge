@@ -11,11 +11,18 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
 
   const { data: invoice } = await admin
     .from("invoices")
-    .select("*, client:clients(*), profile:profiles!invoices_user_id_fkey(*)")
+    .select("*")
     .eq("public_token", token)
     .single();
 
-  if (!invoice || !invoice.client || !invoice.profile) notFound();
+  if (!invoice) notFound();
+
+  const [{ data: client }, { data: profile }] = await Promise.all([
+    admin.from("clients").select("*").eq("id", invoice.client_id).single(),
+    admin.from("profiles").select("*").eq("id", invoice.user_id).single(),
+  ]);
+
+  if (!client || !profile) notFound();
 
   // First open after being sent flips it to "viewed" — but only ever
   // forward (sent -> viewed), never backward over "paid" or "overdue", and
@@ -43,8 +50,8 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
   return (
     <PublicInvoiceView
       invoice={invoice}
-      client={invoice.client}
-      profile={invoice.profile}
+      client={client}
+      profile={profile}
       items={items ?? []}
       messages={messages ?? []}
       token={token}
