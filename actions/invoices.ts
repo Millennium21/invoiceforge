@@ -35,7 +35,7 @@ function parseInvoiceForm(formData: FormData) {
     items,
     isRecurring: formData.get("isRecurring") === "on",
     recurrenceInterval: formData.get("recurrenceInterval") || undefined,
-    recurrenceEndDate: formData.get("recurrenceEndDate"),
+    recurrenceEndDate: formData.get("recurrenceEndDate") || undefined,
   });
 }
 
