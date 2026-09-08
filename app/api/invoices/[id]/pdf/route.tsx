@@ -19,7 +19,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const db = token ? createAdminClient() : await createClient();
   let invoiceQuery = db
     .from("invoices")
-    .select("*, client:clients(*), profile:profiles!invoices_user_id_fkey(*)");
+    .select("*");
 
   if (token) {
     invoiceQuery = invoiceQuery.eq("id", id).eq("public_token", token);
@@ -34,16 +34,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { data: invoice, error } = await invoiceQuery.single();
   if (error || !invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
 
-  const { data: items } = await db
-    .from("invoice_items")
-    .select("*")
-    .eq("invoice_id", id)
-    .order("sort_order");
+  const [{ data: client }, { data: profile }, { data: items }] = await Promise.all([
+    db.from("clients").select("*").eq("id", invoice.client_id).single(),
+    db.from("profiles").select("*").eq("id", invoice.user_id).single(),
+    db.from("invoice_items").select("*").eq("invoice_id", id).order("sort_order"),
+  ]);
+
+  if (!client || !profile) {
+    return NextResponse.json({ error: "Invoice details not found." }, { status: 404 });
+  }
 
   const pdfBuffer = await renderToBuffer(
     <InvoiceDocument
-      profile={invoice.profile}
-      client={invoice.client}
+      profile={profile}
+      client={client}
       items={items ?? []}
       invoiceNumber={invoice.invoice_number}
       issueDate={invoice.issue_date}
